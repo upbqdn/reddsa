@@ -1,7 +1,10 @@
 //! Signed-Booth fallback for public Pallas batch-verification terms.
 //!
-//! Adapted from zakura-core/common's `pasta_curves::arithmetic::multiexp`
-//! (MIT OR Apache-2.0, Copyright 2026 The Zakura Contributors).
+//! Adapted from zakura-core/common's `crates/pasta_curves/src/arithmetic/multiexp.rs`
+//! (<https://github.com/zakura-core/common/blob/084ce07f5488cebc580c995bdb7dbf21935f11ff/crates/pasta_curves/src/arithmetic/multiexp.rs>);
+//! its Bucket and summation-by-parts originate in zcash/halo2's
+//! `halo2_proofs/src/arithmetic.rs` (<https://github.com/zcash/halo2/blob/7465edf9110aace00b8c24b96270e1b820fd39fb/halo2_proofs/src/arithmetic.rs>).
+//! MIT OR Apache-2.0, Copyright 2026 The Zakura Contributors.
 
 use alloc::{vec, vec::Vec};
 
@@ -46,7 +49,10 @@ fn window_bits(terms: usize) -> usize {
     } else if terms < 32 {
         3
     } else {
-        4 + THRESHOLDS.iter().position(|bound| terms <= *bound).unwrap_or(THRESHOLDS.len())
+        4 + THRESHOLDS
+            .iter()
+            .position(|bound| terms <= *bound)
+            .unwrap_or(THRESHOLDS.len())
     }
 }
 
@@ -65,7 +71,9 @@ fn digit(bytes: &[u8], bits: usize, window: usize) -> (usize, bool) {
         0
     } else {
         let bit = start - 1;
-        bytes.get(bit / 8).map_or(0, |byte| usize::from((byte >> (bit % 8)) & 1))
+        bytes
+            .get(bit / 8)
+            .map_or(0, |byte| usize::from((byte >> (bit % 8)) & 1))
     };
     if value < radix / 2 {
         (value + overlap, false)
@@ -108,10 +116,12 @@ pub(super) fn multiexp(scalars: &[pallas::Scalar], bases: &[pallas::Affine]) -> 
     #[cfg(not(feature = "multicore"))]
     let sums: Vec<_> = (0..windows).map(window_sum).collect();
 
-    sums.into_iter().rev().fold(pallas::Point::identity(), |mut sum, window| {
-        for _ in 0..bits {
-            sum = sum.double();
-        }
-        sum + window
-    })
+    sums.into_iter()
+        .rev()
+        .fold(pallas::Point::identity(), |mut sum, window| {
+            for _ in 0..bits {
+                sum = sum.double();
+            }
+            sum + window
+        })
 }

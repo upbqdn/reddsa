@@ -4,6 +4,11 @@ Entries are listed in reverse chronological order.
 
 ## Unreleased
 
+* RedPallas batch verification uses Signed-Booth windows when Pasta's GLV
+  planner declines. It parallelizes with `multicore` and multiple workers;
+  other alloc builds use serial Booth instead of the previous NAF fallback.
+  Signature acceptance is unchanged.
+
 * Multi-signature RedDSA batches use unit weight for the first signature, avoiding
   a random-weight multiplication while preserving rejection of cancelling invalid
   signatures. Subsequent signatures still receive independent random weights.
@@ -13,11 +18,11 @@ Entries are listed in reverse chronological order.
 * `VerificationKey<orchard::Binding>::from_affine` constructs a binding key
   from normalized coordinates, avoiding another inversion after batch normalization.
 * RedPallas batch verification now tries Pasta's variable-time GLV multiscalar
-  multiplication after batch normalization, retaining the NAF fallback when the
+  multiplication after batch normalization, using the fallback above when the
   dispatcher declines the input shape. Signature validation and the public API
   are unchanged. Requires the first `pasta_curves` release with
   `CurveExt::try_multiexp_vartime` (zcash/pasta_curves#182); until then reddsa
-  builds this only with a `[patch]` to Pasta's main branch.
+  depends directly on an upstream Pasta Git revision.
 * RedPallas signature batches decode public points together, optionally in
   parallel with the new `multicore` feature. `std` and `multicore` builds enable
   Pasta's square-root tables for interleaved decoding. Scalar/R/key error

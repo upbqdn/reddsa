@@ -549,6 +549,7 @@ dependencies = [
  "ff",
  "group",
  "lazy_static",
+ "maybe-rayon",
  "rand 0.10.3",
  "static_assertions",
  "subtle",

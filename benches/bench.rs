@@ -45,7 +45,11 @@ where
     B: Binding<Scalar = S::Scalar, Point = S::Point>,
 {
     let mut group = c.benchmark_group(name);
-    for &n in [0usize, 1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 128].iter() {
+    for &n in [
+        0usize, 1, 2, 4, 8, 16, 24, 32, 33, 40, 48, 56, 64, 96, 127, 128,
+    ]
+    .iter()
+    {
         // The empty batch has no per-signature throughput.
         if n > 0 {
             group.throughput(Throughput::Elements(u64::try_from(n).unwrap()));

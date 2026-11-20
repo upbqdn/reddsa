@@ -47,7 +47,10 @@ fn retained_keys_match_bytes<S: SpendAuth, B: Binding<Scalar = S::Scalar, Point 
     }
     for n in [0, 1, 2, 8, 16] {
         assert_eq!(verify(&retained[..n]), verify(&encoded[..n]));
-        assert_eq!(retained[..n].iter().flat_map(Item::point_encodings).count(), n);
+        assert_eq!(
+            retained[..n].iter().flat_map(Item::point_encodings).count(),
+            n
+        );
         assert_eq!(
             encoded[..n].iter().flat_map(Item::point_encodings).count(),
             2 * n
@@ -188,12 +191,20 @@ fn reference<S: SpendAuth, B: Binding<Scalar = S::Scalar, Point = S::Point>>(
         let mut check = S::Point::identity();
         for item in items {
             let (sig_s, sig_r, c, vk, basepoint) = match &item.inner {
-                Inner::SpendAuth { sig, c, vk } => {
-                    (sig.s_bytes, sig.r_bytes, *c, vk.bytes().bytes, S::basepoint())
-                }
-                Inner::Binding { sig, c, vk } => {
-                    (sig.s_bytes, sig.r_bytes, *c, vk.bytes().bytes, B::basepoint())
-                }
+                Inner::SpendAuth { sig, c, vk } => (
+                    sig.s_bytes,
+                    sig.r_bytes,
+                    *c,
+                    vk.bytes().bytes,
+                    S::basepoint(),
+                ),
+                Inner::Binding { sig, c, vk } => (
+                    sig.s_bytes,
+                    sig.r_bytes,
+                    *c,
+                    vk.bytes().bytes,
+                    B::basepoint(),
+                ),
             };
             let mut repr = <S::Scalar as PrimeField>::Repr::default();
             repr.as_mut().copy_from_slice(&sig_s);

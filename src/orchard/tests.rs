@@ -150,8 +150,8 @@ fn pallas_dispatch_matches_naf() {
     use rand_core::SeedableRng;
 
     let mut rng = ChaChaRng::from_seed([19; 32]);
-    // Cover both accepted and declined dispatcher shapes, including a full 128-signature batch.
-    for n in [0, 1, 2, 3, 6, 10, 16, 34, 66, 130, 258] {
+    // Include empty, short, and the real 2n+1 term counts of multi-signature batches.
+    for n in [0, 1, 2, 3, 5, 7, 9, 16, 34, 66, 67, 130, 255, 258] {
         let scalars: Vec<_> = (0..n).map(|_| pallas::Scalar::random(&mut rng)).collect();
         let points: Vec<_> = (0..n).map(|_| pallas::Point::random(&mut rng)).collect();
         for (scalars, points) in [
@@ -159,12 +159,32 @@ fn pallas_dispatch_matches_naf() {
             (alloc::vec![pallas::Scalar::ZERO; n], points.clone()),
             (alloc::vec![-pallas::Scalar::ONE; n], points.clone()),
             (scalars.clone(), alloc::vec![pallas::Point::identity(); n]),
-            (scalars, alloc::vec![pallas::Point::generator(); n]),
+            (scalars.clone(), alloc::vec![pallas::Point::generator(); n]),
+            (
+                alloc::vec![pallas::Scalar::ONE; n],
+                (0..n)
+                    .map(|i| {
+                        if i % 2 == 0 {
+                            pallas::Point::generator()
+                        } else {
+                            -pallas::Point::generator()
+                        }
+                    })
+                    .collect(),
+            ),
         ] {
+            let expected = super::pallas_multiscalar_mul_naf(&scalars, &points);
             assert_eq!(
                 pallas::Point::vartime_multiscalar_mul(&scalars, &points),
-                super::pallas_multiscalar_mul_naf(&scalars, &points),
+                expected,
                 "MSM length {n}"
+            );
+            let mut affine = alloc::vec![pallas::Affine::default(); n];
+            pallas::Point::batch_normalize_vartime(&points, &mut affine);
+            assert_eq!(
+                super::parallel_msm::multiexp(&scalars, &affine),
+                expected,
+                "Booth MSM length {n}"
             );
             let mut missing: Vec<_> = points.into_iter().map(Some).collect();
             if n > 0 {
@@ -201,11 +221,15 @@ fn parallel_booth_matches_serial_at_batch_sizes() {
     use rand_core::SeedableRng;
 
     let mut rng = ChaChaRng::from_seed([53; 32]);
-    for bundles in (1..=65).chain([96, 128]) {
-        // Two MSM terms per signature and the SpendAuth/Binding generators.
-        let terms = 2 * bundles + 2;
-        let scalars: Vec<_> = (0..terms).map(|_| pallas::Scalar::random(&mut rng)).collect();
-        let points: Vec<_> = (0..terms).map(|_| pallas::Point::random(&mut rng)).collect();
+    for bundles in (2..=65).chain([96, 128]) {
+        // Two generators, one key per signature and n-1 weighted R points: 2n+1 terms.
+        let terms = 2 * bundles + 1;
+        let scalars: Vec<_> = (0..terms)
+            .map(|_| pallas::Scalar::random(&mut rng))
+            .collect();
+        let points: Vec<_> = (0..terms)
+            .map(|_| pallas::Point::random(&mut rng))
+            .collect();
         let mut affine = alloc::vec![pallas::Affine::default(); terms];
         pallas::Point::batch_normalize_vartime(&points, &mut affine);
         assert_eq!(
@@ -214,6 +238,70 @@ fn parallel_booth_matches_serial_at_batch_sizes() {
             "batch size {bundles}"
         );
     }
+}
+
+// Run with `cargo test --release --features multicore --lib -- msm_backend_comparison --ignored --nocapture`.
+#[cfg(feature = "multicore")]
+#[test]
+#[ignore = "manual Criterion comparison of MSM backends at 1, 4 and 8 threads"]
+fn msm_backend_comparison() {
+    use criterion::{BenchmarkId, Criterion};
+    use group::Group;
+    use rand_chacha::ChaChaRng;
+    use rand_core::SeedableRng;
+
+    let mut rng = ChaChaRng::from_seed([54; 32]);
+    let pools: Vec<_> = [1, 4, 8]
+        .map(|threads| {
+            maybe_rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("fixed-size Rayon thread pool")
+        })
+        .into();
+    let mut criterion = Criterion::default()
+        .sample_size(10)
+        .warm_up_time(core::time::Duration::from_millis(500))
+        .measurement_time(core::time::Duration::from_secs(1));
+    let mut group = criterion.benchmark_group("Pallas MSM backends");
+    for signatures in [33, 40, 64, 127] {
+        let terms = 2 * signatures + 1;
+        let scalars: Vec<_> = (0..terms)
+            .map(|_| pallas::Scalar::random(&mut rng))
+            .collect();
+        let points: Vec<_> = (0..terms)
+            .map(|_| pallas::Point::random(&mut rng))
+            .collect();
+        let mut affine = alloc::vec![pallas::Affine::default(); terms];
+        pallas::Point::batch_normalize_vartime(&points, &mut affine);
+
+        group.bench_with_input(
+            BenchmarkId::new("NAF", signatures),
+            &scalars,
+            |b, scalars| b.iter(|| super::pallas_multiscalar_mul_naf(scalars, &points)),
+        );
+        for (threads, pool) in [1, 4, 8].into_iter().zip(&pools) {
+            group.bench_with_input(
+                BenchmarkId::new(format!("Booth/{threads} threads"), signatures),
+                &scalars,
+                |b, scalars| {
+                    b.iter(|| pool.install(|| super::parallel_msm::multiexp(scalars, &affine)))
+                },
+            );
+        }
+        for (threads, pool) in [4, 8].into_iter().zip(&pools[1..]) {
+            group.bench_with_input(
+                BenchmarkId::new(format!("dispatch/{threads} threads"), signatures),
+                &scalars,
+                |b, scalars| {
+                    b.iter(|| {
+                        pool.install(|| pallas::Point::vartime_multiscalar_mul(scalars, &points))
+                    })
+                },
+            );
+        }
+    }
+    group.finish();
 }
 
 // Each tuple holds the signature type, verification key, signature and verified message.
