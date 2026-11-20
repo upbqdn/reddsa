@@ -194,6 +194,28 @@ fn pallas_dispatch_matches_naf() {
     }
 }
 
+#[test]
+fn parallel_booth_matches_serial_at_batch_sizes() {
+    use group::Group;
+    use rand_chacha::ChaChaRng;
+    use rand_core::SeedableRng;
+
+    let mut rng = ChaChaRng::from_seed([53; 32]);
+    for bundles in (1..=65).chain([96, 128]) {
+        // Two MSM terms per signature and the SpendAuth/Binding generators.
+        let terms = 2 * bundles + 2;
+        let scalars: Vec<_> = (0..terms).map(|_| pallas::Scalar::random(&mut rng)).collect();
+        let points: Vec<_> = (0..terms).map(|_| pallas::Point::random(&mut rng)).collect();
+        let mut affine = alloc::vec![pallas::Affine::default(); terms];
+        pallas::Point::batch_normalize_vartime(&points, &mut affine);
+        assert_eq!(
+            super::parallel_msm::multiexp(&scalars, &affine),
+            super::pallas_multiscalar_mul_naf(&scalars, &points),
+            "batch size {bundles}"
+        );
+    }
+}
+
 // Each tuple holds the signature type, verification key, signature and verified message.
 type BatchInput = (bool, [u8; 32], [u8; 64], [u8; 32]);
 
@@ -265,7 +287,7 @@ fn orchard_batches_match_naf_acceptance_and_errors() {
     use rand_core::{Rng, SeedableRng};
 
     let mut rng = ChaChaRng::from_seed([21; 32]);
-    for n in [0, 1, 2, 4, 16, 64, 128] {
+    for n in [0, 1, 2, 4, 16, 31, 32, 63, 64, 65, 128] {
         let inputs: Vec<BatchInput> = (0..n)
             .map(|i| {
                 let mut msg = [0; 32];
