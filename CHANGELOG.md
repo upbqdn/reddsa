@@ -4,10 +4,10 @@ Entries are listed in reverse chronological order.
 
 ## Unreleased
 
-* RedPallas batch verification now tries Pasta's variable-time GLV multiscalar
-  multiplication after batch normalization, retaining the NAF fallback when the
-  dispatcher declines the input shape. Signature validation and the public API
-  are unchanged.
+* RedPallas batch verification now evaluates public multiscalar multiplications
+  using parallel Signed-Booth windows when Pasta's GLV planner declines the input
+  shape. The result matches the previous serial NAF fallback; signature
+  acceptance and the public API are unchanged.
 * Final RedPallas batch-MSM preparation explicitly uses variable-time normalization
   for public signature points, verification keys and fixed generators, without changing
   ordinary field inversion or secret-key arithmetic.

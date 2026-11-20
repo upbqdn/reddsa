@@ -20,6 +20,9 @@ use crate::{private, SigType};
 #[cfg(feature = "alloc")]
 use crate::scalar_mul::{LookupTable5, NonAdjacentForm, VartimeMultiscalarMul};
 
+#[cfg(feature = "alloc")]
+mod parallel_msm;
+
 #[cfg(test)]
 mod tests;
 
@@ -187,12 +190,18 @@ impl VartimeMultiscalarMul for pallas::Point {
     {
         let scalars: Vec<_> = scalars.into_iter().map(|c| *c.borrow()).collect();
         let points = points.into_iter().collect::<Option<Vec<_>>>()?;
+        // Preserve the previous zipped-input behavior when called with unequal lengths.
+        if scalars.len() != points.len() {
+            return Some(pallas_multiscalar_mul_naf(&scalars, &points));
+        }
         // Signature R points, verification keys and fixed generators are public.
         // The random batch weights are verifier-local, but do not affect these points.
         let mut affine = alloc::vec![pallas::Affine::default(); points.len()];
         Self::batch_normalize_vartime(&points, &mut affine);
-        Self::try_multiexp_vartime(&scalars, &affine)
-            .or_else(|| Some(pallas_multiscalar_mul_naf(&scalars, &points)))
+        Some(
+            Self::try_multiexp_vartime(&scalars, &affine)
+                .unwrap_or_else(|| parallel_msm::multiexp(&scalars, &affine)),
+        )
     }
 }
 
